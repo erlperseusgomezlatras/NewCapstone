@@ -1,0 +1,12 @@
+﻿Options -Indexes
+DirectoryIndex index.php public/index.php
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # Deny direct access to application layers.
+    RewriteRule ^(?:config|controllers|models|services|middleware)(?:/|$) - [F,L,NC]
+
+    # Root entry should always load the public app.
+    RewriteRule ^$ public/index.php [L]
+</IfModule>
