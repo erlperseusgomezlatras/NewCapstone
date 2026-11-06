@@ -23,5 +23,5 @@ if (ini_get('session.use_cookies')) {
 
 session_destroy();
 
-header('Location: /practicum_system/public/login.php');
+header('Location: ' . appUrl('public/login.php'));
 exit;

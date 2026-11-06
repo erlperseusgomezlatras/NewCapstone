@@ -13,14 +13,29 @@ DROP TRIGGER IF EXISTS trg_attendance_weekday_upd;
 
 DROP TABLE IF EXISTS attendance_geofence_logs;
 DROP TABLE IF EXISTS attendance_sessions;
+DROP TABLE IF EXISTS coordinator_deployments;
 DROP TABLE IF EXISTS section_deployments;
 DROP TABLE IF EXISTS student_geofence_assignments;
+DROP TABLE IF EXISTS student_concerns;
+DROP TABLE IF EXISTS checklist_student_confirmations;
+DROP TABLE IF EXISTS student_weekly_checklist;
+DROP TABLE IF EXISTS checklist_sessions;
+DROP TABLE IF EXISTS journal_answers;
+DROP TABLE IF EXISTS journal_submissions;
+DROP TABLE IF EXISTS journal_question_options;
+DROP TABLE IF EXISTS journal_questions;
+DROP TABLE IF EXISTS journal_forms;
+DROP TABLE IF EXISTS student_journals;
+DROP TABLE IF EXISTS journal_reopen_audit;
 DROP TABLE IF EXISTS partner_schools;
 DROP TABLE IF EXISTS geofence_locations;
 DROP TABLE IF EXISTS attendance_records;
+DROP TABLE IF EXISTS attendance_override_logs;
 DROP TABLE IF EXISTS evaluation_checklist_items;
+DROP TABLE IF EXISTS coordinator_schools;
 DROP TABLE IF EXISTS section_coordinators;
 DROP TABLE IF EXISTS section_students;
+DROP TABLE IF EXISTS semester_students;
 DROP TABLE IF EXISTS sections;
 DROP TABLE IF EXISTS semesters;
 DROP TABLE IF EXISTS school_years;
@@ -50,6 +65,7 @@ CREATE TABLE users (
     email VARCHAR(191) NOT NULL,
     password_hash VARCHAR(255) NOT NULL,
     account_status ENUM('active', 'inactive', 'archived') NOT NULL DEFAULT 'active',
+    must_change_password TINYINT(1) NOT NULL DEFAULT 0,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     CONSTRAINT uq_users_school_id UNIQUE (school_id),
@@ -66,6 +82,14 @@ CREATE TABLE user_profiles (
     first_name VARCHAR(100) NOT NULL,
     middle_name VARCHAR(100) NULL,
     last_name VARCHAR(100) NOT NULL,
+    gender VARCHAR(32) NULL,
+    campus VARCHAR(150) NULL,
+    college VARCHAR(200) NULL,
+    course VARCHAR(200) NULL,
+    subject VARCHAR(200) NULL,
+    original_section VARCHAR(120) NULL,
+    semester_name VARCHAR(120) NULL,
+    imported_semester_id INT UNSIGNED NULL,
     phone VARCHAR(32) NULL,
     photo_path VARCHAR(255) NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -102,8 +126,11 @@ CREATE TABLE semesters (
     semester_no TINYINT UNSIGNED NOT NULL,
     semester_name VARCHAR(32) NOT NULL,
     start_date DATE NOT NULL,
+    practicum_start_date DATE NULL,
+    practicum_status VARCHAR(24) NOT NULL DEFAULT 'not_configured',
+    completed_at DATETIME NULL,
     end_date DATE NOT NULL,
-    semester_status ENUM('planned', 'active', 'closed', 'archived') NOT NULL DEFAULT 'planned',
+    semester_status ENUM('planned', 'active', 'completed', 'closed', 'archived') NOT NULL DEFAULT 'planned',
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     CONSTRAINT uq_semester_school_year_no UNIQUE (school_year_id, semester_no),
@@ -116,18 +143,23 @@ CREATE TABLE semesters (
 
 CREATE TABLE evaluation_checklist_items (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    semester_id INT UNSIGNED NOT NULL,
-    label VARCHAR(160) NOT NULL,
-    points TINYINT UNSIGNED NOT NULL,
-    sort_order INT UNSIGNED NOT NULL DEFAULT 0,
+    item_name VARCHAR(255) NOT NULL,
+    points INT NOT NULL DEFAULT 1,
+    display_order INT NOT NULL DEFAULT 0,
+    semester_id INT UNSIGNED NULL,
     is_active TINYINT(1) NOT NULL DEFAULT 1,
+    created_by BIGINT UNSIGNED NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_evaluation_checklist_active (is_active),
+    INDEX idx_evaluation_checklist_display_order (display_order),
+    INDEX idx_evaluation_checklist_semester (semester_id),
     CONSTRAINT fk_evaluation_checklist_semester
         FOREIGN KEY (semester_id) REFERENCES semesters(id)
-        ON DELETE CASCADE ON UPDATE CASCADE,
-    INDEX idx_evaluation_checklist_semester (semester_id),
-    INDEX idx_evaluation_checklist_active (is_active)
+        ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_evaluation_checklist_created_by
+        FOREIGN KEY (created_by) REFERENCES users(id)
+        ON DELETE RESTRICT ON UPDATE CASCADE
 ) ENGINE=InnoDB;
 
 CREATE TABLE sections (
@@ -152,7 +184,7 @@ CREATE TABLE section_students (
     section_id BIGINT UNSIGNED NOT NULL,
     semester_id INT UNSIGNED NOT NULL,
     student_user_id BIGINT UNSIGNED NOT NULL,
-    enrollment_status ENUM('active', 'inactive', 'dropped', 'completed') NOT NULL DEFAULT 'active',
+    enrollment_status ENUM('active', 'inactive', 'archived', 'dropped', 'completed') NOT NULL DEFAULT 'active',
     enrolled_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT uq_section_student UNIQUE (section_id, student_user_id),
     CONSTRAINT uq_semester_student UNIQUE (semester_id, student_user_id),
@@ -185,24 +217,250 @@ CREATE TABLE section_coordinators (
     INDEX idx_section_coordinators_user (coordinator_user_id)
 ) ENGINE=InnoDB;
 
+CREATE TABLE semester_students (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    semester_id INT UNSIGNED NOT NULL,
+    student_user_id BIGINT UNSIGNED NOT NULL,
+    enrollment_status ENUM('active', 'inactive', 'archived', 'dropped', 'completed') NOT NULL DEFAULT 'active',
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uq_semester_students_student (semester_id, student_user_id),
+    KEY idx_semester_students_student (student_user_id),
+    KEY idx_semester_students_status (semester_id, enrollment_status),
+    CONSTRAINT fk_semester_students_semester
+        FOREIGN KEY (semester_id) REFERENCES semesters(id)
+        ON DELETE RESTRICT ON UPDATE CASCADE,
+    CONSTRAINT fk_semester_students_user
+        FOREIGN KEY (student_user_id) REFERENCES users(id)
+        ON DELETE RESTRICT ON UPDATE CASCADE
+) ENGINE=InnoDB;
+
+CREATE TABLE checklist_sessions (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    section_id BIGINT UNSIGNED NULL,
+    semester_id INT UNSIGNED NULL,
+    week_start DATE NOT NULL,
+    checklist_date DATE NULL,
+    closed_at DATETIME NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uq_checklist_session (section_id, semester_id, week_start),
+    KEY idx_checklist_session_week (semester_id, week_start),
+    CONSTRAINT fk_checklist_sessions_section
+        FOREIGN KEY (section_id) REFERENCES sections(id)
+        ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_checklist_sessions_semester
+        FOREIGN KEY (semester_id) REFERENCES semesters(id)
+        ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB;
+
+CREATE TABLE student_weekly_checklist (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    student_user_id BIGINT UNSIGNED NOT NULL,
+    section_id BIGINT UNSIGNED NULL,
+    semester_id INT UNSIGNED NOT NULL,
+    week_start DATE NOT NULL,
+    checklist_item_id BIGINT UNSIGNED NOT NULL,
+    is_checked TINYINT(1) NOT NULL DEFAULT 0,
+    awarded_points INT NOT NULL DEFAULT 0,
+    checked_by BIGINT UNSIGNED NOT NULL,
+    checked_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uq_student_week_item (student_user_id, week_start, checklist_item_id),
+    KEY idx_student_weekly_checklist_section_week (section_id, semester_id, week_start),
+    KEY idx_student_weekly_checklist_item (checklist_item_id),
+    CONSTRAINT fk_student_weekly_checklist_student
+        FOREIGN KEY (student_user_id) REFERENCES users(id)
+        ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_student_weekly_checklist_section
+        FOREIGN KEY (section_id) REFERENCES sections(id)
+        ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_student_weekly_checklist_semester
+        FOREIGN KEY (semester_id) REFERENCES semesters(id)
+        ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_student_weekly_checklist_item
+        FOREIGN KEY (checklist_item_id) REFERENCES evaluation_checklist_items(id)
+        ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_student_weekly_checklist_checked_by
+        FOREIGN KEY (checked_by) REFERENCES users(id)
+        ON DELETE RESTRICT ON UPDATE CASCADE
+) ENGINE=InnoDB;
+
+CREATE TABLE student_journals (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    student_user_id BIGINT UNSIGNED NOT NULL,
+    semester_id INT UNSIGNED NOT NULL,
+    week_start DATE NOT NULL,
+    grateful_for TEXT NULL,
+    proud_of TEXT NULL,
+    words_to_inspire TEXT NULL,
+    affirmations TEXT NULL,
+    look_forward_to TEXT NULL,
+    feeling ENUM('great', 'good', 'neutral', 'lean_not', 'not_good') NULL,
+    status ENUM('pending', 'reviewed', 'approved', 'declined', 'resubmitted') NOT NULL DEFAULT 'pending',
+    coordinator_feedback TEXT NULL,
+    submitted_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uq_student_journal_week (student_user_id, semester_id, week_start),
+    CONSTRAINT fk_student_journals_user
+        FOREIGN KEY (student_user_id) REFERENCES users(id)
+        ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_student_journals_semester
+        FOREIGN KEY (semester_id) REFERENCES semesters(id)
+        ON DELETE CASCADE ON UPDATE CASCADE,
+    INDEX idx_student_journals_student (student_user_id),
+    INDEX idx_student_journals_semester (semester_id),
+    INDEX idx_student_journals_week (week_start),
+    INDEX idx_student_journals_status (status)
+) ENGINE=InnoDB;
+
+CREATE TABLE journal_forms (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    title VARCHAR(255) NOT NULL,
+    description TEXT NULL,
+    max_points INT UNSIGNED NOT NULL DEFAULT 50,
+    semester_id INT UNSIGNED NOT NULL,
+    is_active TINYINT(1) NOT NULL DEFAULT 1,
+    created_by BIGINT UNSIGNED NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_journal_forms_semester (semester_id),
+    INDEX idx_journal_forms_active (semester_id, is_active)
+) ENGINE=InnoDB;
+
+CREATE TABLE journal_questions (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    form_id BIGINT UNSIGNED NOT NULL,
+    question_text TEXT NOT NULL,
+    question_type ENUM('paragraph','short_answer','multiple_choice','checkbox','dropdown') NOT NULL,
+    is_required TINYINT(1) NOT NULL DEFAULT 1,
+    sort_order INT NOT NULL DEFAULT 0,
+    is_active TINYINT(1) NOT NULL DEFAULT 1,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_journal_questions_form (form_id),
+    INDEX idx_journal_questions_sort (form_id, sort_order, id)
+) ENGINE=InnoDB;
+
+CREATE TABLE journal_question_options (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    question_id BIGINT UNSIGNED NOT NULL,
+    option_text VARCHAR(255) NOT NULL,
+    sort_order INT NOT NULL DEFAULT 0,
+    INDEX idx_journal_question_options_question (question_id, sort_order, id)
+) ENGINE=InnoDB;
+
+CREATE TABLE journal_submissions (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    student_user_id BIGINT UNSIGNED NOT NULL,
+    semester_id INT UNSIGNED NOT NULL,
+    week_no INT NOT NULL,
+    week_start DATE NOT NULL,
+    form_id BIGINT UNSIGNED NOT NULL,
+    points_awarded INT UNSIGNED NOT NULL DEFAULT 0,
+    max_points INT UNSIGNED NOT NULL DEFAULT 50,
+    status ENUM('pending','reviewed','approved','declined','resubmitted') NOT NULL DEFAULT 'pending',
+    is_reopened TINYINT(1) NOT NULL DEFAULT 0,
+    reopened_at DATETIME NULL,
+    reopened_by BIGINT UNSIGNED NULL,
+    coordinator_feedback TEXT NULL,
+    reviewed_by BIGINT UNSIGNED NULL,
+    reviewed_at DATETIME NULL,
+    submitted_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uq_journal_submission_week (student_user_id, semester_id, week_start),
+    INDEX idx_journal_submission_semester_week (semester_id, week_no, week_start),
+    INDEX idx_journal_submission_form (form_id),
+    INDEX idx_journal_submission_status (status)
+) ENGINE=InnoDB;
+
+CREATE TABLE journal_reopen_audit (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    coordinator_user_id BIGINT UNSIGNED NOT NULL,
+    student_user_id BIGINT UNSIGNED NOT NULL,
+    semester_id INT UNSIGNED NOT NULL,
+    week_start DATE NOT NULL,
+    reopened_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_journal_reopen_audit_student_week (student_user_id, semester_id, week_start),
+    INDEX idx_journal_reopen_audit_coordinator (coordinator_user_id, reopened_at)
+) ENGINE=InnoDB;
+
+CREATE TABLE journal_answers (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    submission_id BIGINT UNSIGNED NOT NULL,
+    question_id BIGINT UNSIGNED NOT NULL,
+    question_text_snapshot TEXT NOT NULL,
+    question_type_snapshot VARCHAR(30) NOT NULL,
+    question_options_snapshot JSON NULL,
+    answer_text LONGTEXT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uq_journal_answer_submission_question (submission_id, question_id),
+    INDEX idx_journal_answers_submission (submission_id),
+    INDEX idx_journal_answers_question (question_id)
+) ENGINE=InnoDB;
+
+CREATE TABLE student_concerns (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    student_user_id BIGINT UNSIGNED NOT NULL,
+    coordinator_user_id BIGINT UNSIGNED NULL,
+    category VARCHAR(64) NOT NULL DEFAULT 'General',
+    subject VARCHAR(150) NOT NULL,
+    message TEXT NOT NULL,
+    concern_status ENUM('pending', 'resolved', 'declined') NOT NULL DEFAULT 'pending',
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    CONSTRAINT fk_concern_student
+        FOREIGN KEY (student_user_id) REFERENCES users(id)
+        ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_concern_coordinator
+        FOREIGN KEY (coordinator_user_id) REFERENCES users(id)
+        ON DELETE SET NULL ON UPDATE CASCADE,
+    INDEX idx_student_concerns_student (student_user_id),
+    INDEX idx_student_concerns_status (concern_status),
+    INDEX idx_student_concerns_created (created_at)
+) ENGINE=InnoDB;
+
+CREATE TABLE concern_messages (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    concern_id BIGINT UNSIGNED NOT NULL,
+    sender_user_id BIGINT UNSIGNED NOT NULL,
+    sender_role ENUM('student', 'coordinator', 'head_teacher') NOT NULL,
+    message TEXT NOT NULL,
+    attachment_path VARCHAR(255) NULL,
+    attachment_name VARCHAR(255) NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_concern_messages_concern
+        FOREIGN KEY (concern_id) REFERENCES student_concerns(id)
+        ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_concern_messages_sender
+        FOREIGN KEY (sender_user_id) REFERENCES users(id)
+        ON DELETE CASCADE ON UPDATE CASCADE,
+    INDEX idx_concern_messages_concern (concern_id, created_at),
+    INDEX idx_concern_messages_sender (sender_user_id)
+) ENGINE=InnoDB;
+
 CREATE TABLE attendance_records (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     student_user_id BIGINT UNSIGNED NOT NULL,
-    section_id BIGINT UNSIGNED NOT NULL,
+    section_id BIGINT UNSIGNED NULL,
     semester_id INT UNSIGNED NOT NULL,
+    deployment_id BIGINT UNSIGNED NULL,
     ojt_type_id TINYINT UNSIGNED NOT NULL,
     attendance_date DATE NOT NULL,
     time_in DATETIME NOT NULL,
     time_out DATETIME NULL,
     total_hours DECIMAL(5,2) NOT NULL DEFAULT 0.00,
+    geofence_seconds INT UNSIGNED NOT NULL DEFAULT 0,
+    geofence_last_seen_at DATETIME NULL,
+    geofence_inside TINYINT(1) NOT NULL DEFAULT 0,
     remarks VARCHAR(255) NULL,
+    is_override TINYINT(1) NOT NULL DEFAULT 0,
+    override_by BIGINT UNSIGNED NULL,
+    override_reason VARCHAR(255) NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     CONSTRAINT uq_attendance_student_date UNIQUE (student_user_id, attendance_date),
-    CONSTRAINT fk_attendance_enrollment
-        FOREIGN KEY (section_id, semester_id, student_user_id)
-        REFERENCES section_students(section_id, semester_id, student_user_id)
-        ON DELETE RESTRICT ON UPDATE CASCADE,
     CONSTRAINT fk_attendance_ojt
         FOREIGN KEY (ojt_type_id) REFERENCES ojt_types(id)
         ON DELETE RESTRICT ON UPDATE CASCADE,
@@ -210,7 +468,28 @@ CREATE TABLE attendance_records (
     INDEX idx_attendance_date (attendance_date),
     INDEX idx_attendance_section_date (section_id, attendance_date),
     INDEX idx_attendance_semester_date (semester_id, attendance_date),
-    INDEX idx_attendance_ojt_date (ojt_type_id, attendance_date)
+    INDEX idx_attendance_ojt_date (ojt_type_id, attendance_date),
+    CONSTRAINT fk_attendance_override_by
+        FOREIGN KEY (override_by) REFERENCES users(id)
+        ON DELETE RESTRICT ON UPDATE CASCADE
+) ENGINE=InnoDB;
+
+CREATE TABLE student_school_deployments (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    student_user_id BIGINT UNSIGNED NOT NULL,
+    coordinator_user_id BIGINT UNSIGNED NULL,
+    geofence_id BIGINT UNSIGNED NOT NULL,
+    semester_id INT UNSIGNED NOT NULL,
+    deployment_order TINYINT UNSIGNED NOT NULL,
+    required_seconds INT UNSIGNED NOT NULL DEFAULT 648000,
+    rendered_seconds INT UNSIGNED NOT NULL DEFAULT 0,
+    deployment_status ENUM('locked','active','completed') NOT NULL DEFAULT 'locked',
+    started_at DATETIME NULL, completed_at DATETIME NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uq_student_school_order (student_user_id, semester_id, deployment_order),
+    UNIQUE KEY uq_student_school_location (student_user_id, semester_id, geofence_id),
+    KEY idx_student_school_active (student_user_id, semester_id, deployment_status)
 ) ENGINE=InnoDB;
 
 CREATE TABLE attendance_sessions (
@@ -253,42 +532,89 @@ CREATE TABLE partner_schools (
         ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB;
 
-CREATE TABLE section_deployments (
+CREATE TABLE attendance_override_logs (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    section_id BIGINT UNSIGNED NOT NULL,
+    attendance_id BIGINT UNSIGNED NOT NULL,
+    coordinator_id BIGINT UNSIGNED NOT NULL,
+    reason TEXT NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_attendance_override_logs_attendance
+        FOREIGN KEY (attendance_id) REFERENCES attendance_records(id)
+        ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_attendance_override_logs_coordinator
+        FOREIGN KEY (coordinator_id) REFERENCES users(id)
+        ON DELETE RESTRICT ON UPDATE CASCADE,
+    INDEX idx_attendance_override_logs_attendance (attendance_id),
+    INDEX idx_attendance_override_logs_coordinator (coordinator_id)
+) ENGINE=InnoDB;
+
+CREATE TABLE coordinator_schools (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    coordinator_user_id BIGINT UNSIGNED NOT NULL,
     geofence_id BIGINT UNSIGNED NOT NULL,
-    deployment_type ENUM('public_school', 'private_school') NOT NULL,
-    deployment_status ENUM('running', 'ended') NOT NULL DEFAULT 'running',
+    semester_id INT UNSIGNED NULL,
+    deployment_order TINYINT UNSIGNED NOT NULL,
+    assigned_by BIGINT UNSIGNED NOT NULL,
+    assigned_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uq_coordinator_school_order (coordinator_user_id, semester_id, deployment_order),
+    KEY idx_coordinator_schools_geofence (geofence_id),
+    CONSTRAINT fk_coordinator_schools_user
+        FOREIGN KEY (coordinator_user_id) REFERENCES users(id)
+        ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_coordinator_schools_geofence
+        FOREIGN KEY (geofence_id) REFERENCES geofence_locations(id)
+        ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_coordinator_schools_assigned_by
+        FOREIGN KEY (assigned_by) REFERENCES users(id)
+        ON DELETE RESTRICT ON UPDATE CASCADE
+) ENGINE=InnoDB;
+
+CREATE TABLE coordinator_deployments (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    coordinator_user_id BIGINT UNSIGNED NOT NULL,
+    geofence_id BIGINT UNSIGNED NOT NULL,
+    semester_id INT UNSIGNED NULL,
+    deployment_order TINYINT UNSIGNED NOT NULL,
+    deployment_status ENUM('active', 'ended') NOT NULL DEFAULT 'active',
     started_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     ended_at DATETIME NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    CONSTRAINT fk_section_deployments_section
-        FOREIGN KEY (section_id) REFERENCES sections(id)
+    UNIQUE KEY uq_coordinator_deployment_order (coordinator_user_id, semester_id, deployment_order),
+    KEY idx_coordinator_deployments_geofence (geofence_id),
+    KEY idx_coordinator_deployments_status (deployment_status),
+    CONSTRAINT fk_coordinator_deployments_user
+        FOREIGN KEY (coordinator_user_id) REFERENCES users(id)
         ON DELETE CASCADE ON UPDATE CASCADE,
-    CONSTRAINT fk_section_deployments_geofence
+    CONSTRAINT fk_coordinator_deployments_geofence
         FOREIGN KEY (geofence_id) REFERENCES geofence_locations(id)
-        ON DELETE RESTRICT ON UPDATE CASCADE,
-    INDEX idx_section_deployments_section (section_id),
-    INDEX idx_section_deployments_geofence (geofence_id),
-    INDEX idx_section_deployments_type_status (deployment_type, deployment_status)
+        ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB;
 
 CREATE TABLE student_geofence_assignments (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     student_user_id BIGINT UNSIGNED NOT NULL,
     geofence_id BIGINT UNSIGNED NOT NULL,
+    coordinator_user_id BIGINT UNSIGNED NULL,
+    semester_id INT UNSIGNED NULL,
     assigned_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     assignment_status ENUM('active', 'inactive') NOT NULL DEFAULT 'active',
-    CONSTRAINT uq_student_geofence UNIQUE (student_user_id, geofence_id),
+    CONSTRAINT uq_student_geofence_semester UNIQUE (student_user_id, geofence_id, semester_id),
     CONSTRAINT fk_student_geofence_user
         FOREIGN KEY (student_user_id) REFERENCES users(id)
         ON DELETE CASCADE ON UPDATE CASCADE,
     CONSTRAINT fk_student_geofence_geofence
         FOREIGN KEY (geofence_id) REFERENCES geofence_locations(id)
         ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_student_geofence_coordinator
+        FOREIGN KEY (coordinator_user_id) REFERENCES users(id)
+        ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_student_geofence_semester
+        FOREIGN KEY (semester_id) REFERENCES semesters(id)
+        ON DELETE SET NULL ON UPDATE CASCADE,
     INDEX idx_student_geofence_user (student_user_id),
-    INDEX idx_student_geofence_geofence (geofence_id)
+    INDEX idx_student_geofence_geofence (geofence_id),
+    INDEX idx_student_geofence_coordinator_semester (coordinator_user_id, semester_id)
 ) ENGINE=InnoDB;
 
 CREATE TABLE attendance_geofence_logs (
@@ -464,6 +790,7 @@ FROM (
     SELECT 'student', 'STU-0002', 'student2@phinmaed.com', '$2y$10$ioggfUvAfXgH5aJ9jJYHC.cZlsuZb6t9sATEmMV.kjACHVqZC0fKu'
 ) t
 JOIN roles r ON r.role_code = t.role_code
+WHERE t.role_code = 'head_teacher'
 ON DUPLICATE KEY UPDATE
     role_id = VALUES(role_id),
     password_hash = VALUES(password_hash),
@@ -481,6 +808,7 @@ FROM (
     SELECT 'student2@phinmaed.com', 'Bea', NULL, 'Dizon', '+63 917 000 1004'
 ) p
 JOIN users u ON u.email = p.email
+WHERE p.email = 'head.teacher@phinmaed.com'
 ON DUPLICATE KEY UPDATE
     first_name = VALUES(first_name),
     middle_name = VALUES(middle_name),
@@ -488,19 +816,20 @@ ON DUPLICATE KEY UPDATE
     phone = VALUES(phone);
 
 INSERT INTO school_years (year_label, start_date, end_date, year_status)
-VALUES ('2027-2028', '2027-06-01', '2028-05-31', 'active')
+VALUES ('2026-2027', '2026-06-01', '2027-05-31', 'active')
 ON DUPLICATE KEY UPDATE
     start_date = VALUES(start_date),
     end_date = VALUES(end_date),
     year_status = VALUES(year_status);
 
-INSERT INTO semesters (school_year_id, semester_no, semester_name, start_date, end_date, semester_status)
-SELECT sy.id, 1, '1st Semester', '2027-06-01', '2027-10-31', 'active'
+INSERT INTO semesters (school_year_id, semester_no, semester_name, start_date, practicum_start_date, end_date, semester_status)
+SELECT sy.id, 1, '1st Semester', '2026-06-01', NULL, '2026-10-31', 'planned'
 FROM school_years sy
-WHERE sy.year_label = '2027-2028'
+WHERE sy.year_label = '2026-2027'
 ON DUPLICATE KEY UPDATE
     semester_name = VALUES(semester_name),
     start_date = VALUES(start_date),
+    practicum_start_date = NULL,
     end_date = VALUES(end_date),
     semester_status = VALUES(semester_status);
 
@@ -508,24 +837,11 @@ INSERT INTO sections (semester_id, section_code, section_name, capacity, section
 SELECT sem.id, 'SEC-A', 'Section A', 50, 'active'
 FROM semesters sem
 JOIN school_years sy ON sy.id = sem.school_year_id
-WHERE sy.year_label = '2027-2028' AND sem.semester_no = 1
+WHERE sy.year_label = '2026-2027' AND sem.semester_no = 1
 ON DUPLICATE KEY UPDATE
     section_name = VALUES(section_name),
     capacity = VALUES(capacity),
     section_status = VALUES(section_status);
-
-INSERT INTO section_coordinators (section_id, coordinator_user_id)
-SELECT sec.id, u.id
-FROM sections sec
-JOIN semesters sem ON sem.id = sec.semester_id
-JOIN school_years sy ON sy.id = sem.school_year_id
-JOIN users u ON u.email = 'coordinator@phinmaed.com'
-WHERE sy.year_label = '2027-2028'
-  AND sem.semester_no = 1
-  AND sec.section_code = 'SEC-A'
-ON DUPLICATE KEY UPDATE
-    coordinator_user_id = VALUES(coordinator_user_id),
-    assigned_at = CURRENT_TIMESTAMP;
 
 INSERT INTO section_students (section_id, semester_id, student_user_id, enrollment_status)
 SELECT sec.id, sem.id, u.id, 'active'
@@ -533,12 +849,25 @@ FROM sections sec
 JOIN semesters sem ON sem.id = sec.semester_id
 JOIN school_years sy ON sy.id = sem.school_year_id
 JOIN users u ON u.email IN ('student@phinmaed.com', 'student2@phinmaed.com')
-WHERE sy.year_label = '2027-2028'
+WHERE sy.year_label = '2026-2027'
   AND sem.semester_no = 1
   AND sec.section_code = 'SEC-A'
 ON DUPLICATE KEY UPDATE
     enrollment_status = VALUES(enrollment_status);
 
+INSERT INTO semester_students (semester_id, student_user_id, enrollment_status)
+SELECT sem.id, u.id, 'active'
+FROM semesters sem
+JOIN school_years sy ON sy.id = sem.school_year_id
+JOIN users u ON u.email IN ('student@phinmaed.com', 'student2@phinmaed.com')
+WHERE sy.year_label = '2026-2027'
+  AND sem.semester_no = 1
+ON DUPLICATE KEY UPDATE
+    enrollment_status = VALUES(enrollment_status),
+    updated_at = CURRENT_TIMESTAMP;
+
+/* Partner school seed data is intentionally disabled. Add schools from the application. */
+/*
 INSERT INTO geofence_locations (name, latitude, longitude, radius_meters, school_type, is_active)
 VALUES
     ('CDO Public Campus', 8.4795000, 124.6473000, 120.00, 'public_school', 1),
@@ -549,6 +878,7 @@ ON DUPLICATE KEY UPDATE
     radius_meters = VALUES(radius_meters),
     school_type = VALUES(school_type),
     is_active = VALUES(is_active);
+*/
 
 INSERT INTO partner_schools (geofence_id, address, daily_cap_hours, school_status)
 SELECT g.id, p.address, p.daily_cap_hours, p.school_status
@@ -563,37 +893,65 @@ ON DUPLICATE KEY UPDATE
     daily_cap_hours = VALUES(daily_cap_hours),
     school_status = VALUES(school_status);
 
-INSERT INTO section_deployments (section_id, geofence_id, deployment_type, deployment_status, started_at)
-SELECT sec.id, g.id, g.school_type, 'running', NOW()
-FROM sections sec
-JOIN semesters sem ON sem.id = sec.semester_id
-JOIN school_years sy ON sy.id = sem.school_year_id
+INSERT INTO coordinator_schools (coordinator_user_id, geofence_id, semester_id, deployment_order, assigned_by)
+SELECT coordinator.id, g.id, sem.id, 1, head_teacher.id
+FROM users coordinator
+JOIN users head_teacher ON head_teacher.email = 'head.teacher@phinmaed.com'
 JOIN geofence_locations g ON g.name = 'CDO Public Campus'
-WHERE sy.year_label = '2027-2028'
-  AND sem.semester_no = 1
-  AND sec.section_code = 'SEC-A'
+CROSS JOIN semesters sem
+JOIN school_years sy ON sy.id = sem.school_year_id
+WHERE coordinator.email = 'coordinator@phinmaed.com'
+  AND sy.year_label = '2026-2027' AND sem.semester_no = 1
 ON DUPLICATE KEY UPDATE
     geofence_id = VALUES(geofence_id),
-    deployment_type = VALUES(deployment_type),
+    assigned_by = VALUES(assigned_by),
+    assigned_at = CURRENT_TIMESTAMP;
+
+INSERT INTO coordinator_deployments (coordinator_user_id, geofence_id, semester_id, deployment_order, deployment_status, started_at)
+SELECT coordinator.id, g.id, sem.id, 1, 'active', NOW()
+FROM users coordinator
+JOIN geofence_locations g ON g.name = 'CDO Public Campus'
+JOIN roles r ON r.id = coordinator.role_id
+CROSS JOIN semesters sem
+JOIN school_years sy ON sy.id = sem.school_year_id
+WHERE coordinator.email = 'coordinator@phinmaed.com'
+  AND r.role_code = 'coordinator'
+  AND sy.year_label = '2026-2027' AND sem.semester_no = 1
+ON DUPLICATE KEY UPDATE
+    geofence_id = VALUES(geofence_id),
     deployment_status = VALUES(deployment_status),
     started_at = VALUES(started_at),
     ended_at = NULL;
 
-INSERT INTO student_geofence_assignments (student_user_id, geofence_id, assignment_status)
-SELECT u.id, g.id, 'active'
+INSERT INTO student_geofence_assignments (student_user_id, geofence_id, coordinator_user_id, semester_id, assignment_status)
+SELECT u.id, g.id, coordinator.id, sem.id, 'active'
 FROM users u
 JOIN geofence_locations g ON g.name = 'CDO Public Campus'
+JOIN users coordinator ON coordinator.email = 'coordinator@phinmaed.com'
+CROSS JOIN semesters sem
+JOIN school_years sy ON sy.id = sem.school_year_id
 WHERE u.email = 'student@phinmaed.com'
+  AND sy.year_label = '2026-2027'
+  AND sem.semester_no = 1
 ON DUPLICATE KEY UPDATE
+    coordinator_user_id = VALUES(coordinator_user_id),
+    semester_id = VALUES(semester_id),
     assignment_status = VALUES(assignment_status),
     assigned_at = CURRENT_TIMESTAMP;
 
-INSERT INTO student_geofence_assignments (student_user_id, geofence_id, assignment_status)
-SELECT u.id, g.id, 'active'
+INSERT INTO student_geofence_assignments (student_user_id, geofence_id, coordinator_user_id, semester_id, assignment_status)
+SELECT u.id, g.id, coordinator.id, sem.id, 'active'
 FROM users u
 JOIN geofence_locations g ON g.name = 'CDO Private Partner'
+JOIN users coordinator ON coordinator.email = 'coordinator@phinmaed.com'
+CROSS JOIN semesters sem
+JOIN school_years sy ON sy.id = sem.school_year_id
 WHERE u.email = 'student2@phinmaed.com'
+  AND sy.year_label = '2026-2027'
+  AND sem.semester_no = 1
 ON DUPLICATE KEY UPDATE
+    coordinator_user_id = VALUES(coordinator_user_id),
+    semester_id = VALUES(semester_id),
     assignment_status = VALUES(assignment_status),
     assigned_at = CURRENT_TIMESTAMP;
 
@@ -613,9 +971,9 @@ SELECT
     sec.id,
     sem.id,
     ot.id,
-    '2027-06-02',
-    '2027-06-02 08:00:00',
-    '2027-06-02 16:00:00',
+    '2026-06-02',
+    '2026-06-02 08:00:00',
+    '2026-06-02 16:00:00',
     8.00,
     'On time'
 FROM users u
@@ -624,7 +982,7 @@ JOIN semesters sem ON sem.id = sec.semester_id
 JOIN school_years sy ON sy.id = sem.school_year_id
 JOIN ojt_types ot ON ot.ojt_code = 'public_school'
 WHERE u.email = 'student@phinmaed.com'
-  AND sy.year_label = '2027-2028'
+  AND sy.year_label = '2026-2027'
   AND sem.semester_no = 1
 ON DUPLICATE KEY UPDATE
     time_in = VALUES(time_in),
@@ -645,7 +1003,7 @@ FROM attendance_records ar
 JOIN users u ON u.id = ar.student_user_id
 JOIN geofence_locations g ON g.name = 'CDO Public Campus'
 WHERE u.email = 'student@phinmaed.com'
-  AND ar.attendance_date = '2027-06-02'
+  AND ar.attendance_date = '2026-06-02'
 ON DUPLICATE KEY UPDATE
     latitude = VALUES(latitude),
     longitude = VALUES(longitude),
@@ -658,8 +1016,8 @@ ON DUPLICATE KEY UPDATE
 -- ===========================
 
 SET @student_user_id := (SELECT id FROM users WHERE email = 'student@phinmaed.com' LIMIT 1);
-SET @week_start := '2027-06-02';
-SET @week_end := '2027-06-06';
+SET @week_start := '2026-06-02';
+SET @week_end := '2026-06-06';
 SET @section_id := (SELECT id FROM sections WHERE section_code = 'SEC-A' LIMIT 1);
 SET @semester_id := (SELECT semester_id FROM sections WHERE id = @section_id LIMIT 1);
 

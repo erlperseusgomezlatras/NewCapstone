@@ -32,10 +32,10 @@ if (isLoggedIn()) {
 }
 
 $error = '';
-$email = '';
+$loginIdentifier = '';
 $genericAuthError = 'Invalid email or password.';
 $maxAttempts = 5;
-$lockoutSeconds = 900; // 15 minutes
+$lockoutSeconds = 60; // Short protection window after repeated failed attempts.
 
 function columnExists(PDO $pdo, string $table, string $column): bool
 {
@@ -95,10 +95,11 @@ function initLoginThrottle(string $key): void
         $_SESSION['login_throttle'] = [];
     }
 
-    if (!isset($_SESSION['login_throttle'][$key]) || !is_array($_SESSION['login_throttle'][$key])) {
+    if (!isset($_SESSION['login_throttle'][$key]) || !is_array($_SESSION['login_throttle'][$key]) || (int) ($_SESSION['login_throttle'][$key]['version'] ?? 0) !== 2) {
         $_SESSION['login_throttle'][$key] = [
             'attempts' => 0,
             'blocked_until' => 0,
+            'version' => 2,
         ];
     }
 }
@@ -161,15 +162,19 @@ $flashEmail = (string)($_SESSION['login_flash_email'] ?? '');
 $flashSuccess = (string)($_SESSION['login_flash_success'] ?? '');
 unset($_SESSION['login_flash_error'], $_SESSION['login_flash_email'], $_SESSION['login_flash_success']);
 
+if ((string) ($_GET['inactive'] ?? '') === '1') {
+    $flashError = 'Your Supervisor account is currently inactive. Please contact the Head Teacher if you are assigned as a Supervisor for the current semester.';
+}
+
 if ($flashError !== '') {
     $error = $flashError;
 }
 if ($flashEmail !== '') {
-    $email = $flashEmail;
+    $loginIdentifier = $flashEmail;
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $email = safeTrimPost('email');
+    $loginIdentifier = safeTrimPost('email');
     $password = (string) ($_POST['password'] ?? '');
     $mathAnswer = safeTrimPost('math_answer');
     $submittedToken = (string)($_POST['csrf_token'] ?? '');
@@ -178,8 +183,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if (isset($_POST['refresh_challenge'])) {
         regenerateLoginMathChallenge();
-        $_SESSION['login_flash_email'] = $email;
-        header('Location: login.php');
+        $_SESSION['login_flash_email'] = $loginIdentifier;
+        header('Location: ' . appUrl('public/login.php'));
         exit;
     } elseif (($throttleState['blocked_until'] ?? 0) > $nowTs) {
         $error = 'Too many login attempts. Please try again later.';
@@ -187,13 +192,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $error = 'Invalid request. Please refresh the page and try again.';
     } elseif ($mathAnswer === '' || !ctype_digit($mathAnswer) || (int)$mathAnswer !== (int)$challenge['answer']) {
         $error = 'Please solve the verification challenge correctly.';
-    } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL) || $password === '') {
+    } elseif ($loginIdentifier === '' || $password === '') {
         $error = $genericAuthError;
     } else {
         try {
             $pdo = getPDO();
             $usesModernSchema = columnExists($pdo, 'users', 'role_id')
                 && columnExists($pdo, 'users', 'account_status');
+            $supportsMustChangePassword = $usesModernSchema
+                && columnExists($pdo, 'users', 'must_change_password');
             $hasUserYearStatusTable = tableExists($pdo, 'user_school_year_status');
 
             if ($usesModernSchema) {
@@ -204,23 +211,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         u.email,
                         u.password_hash,
                         r.role_code AS role,
-                        u.account_status AS status
+                        u.account_status AS status,
+                        ' . ($supportsMustChangePassword ? 'u.must_change_password' : '0') . ' AS must_change_password
                      FROM users u
                      JOIN roles r ON r.id = u.role_id
                      LEFT JOIN user_profiles up ON up.user_id = u.id
-                     WHERE u.email = :email
+                     WHERE u.email = :email_identifier
                      LIMIT 1'
                 );
             } else {
                 $stmt = $pdo->prepare(
                     'SELECT id, full_name, email, password_hash, role, status
                      FROM users
-                     WHERE email = :email
+                     WHERE email = :email_identifier
                      LIMIT 1'
                 );
             }
 
-            $stmt->execute(['email' => $email]);
+            $stmt->execute([
+                'email_identifier' => $loginIdentifier,
+            ]);
             $user = $stmt->fetch();
 
             if (
@@ -240,7 +250,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $user['status'] = 'active';
             }
 
-            if ($user && $user['status'] === 'active' && password_verify($password, $user['password_hash'])) {
+            if ($user && password_verify($password, $user['password_hash'])) {
+                if ((string) $user['role'] === 'supervisor' && ((string) $user['status'] !== 'active' || !supervisorHasCurrentSemesterAccess((int) $user['id']))) {
+                    $error = 'Your Supervisor account is currently inactive. Please contact the Head Teacher if you are assigned as a Supervisor for the current semester.';
+                } else {
                 session_regenerate_id(true);
                 $throttleState['attempts'] = 0;
                 $throttleState['blocked_until'] = 0;
@@ -249,6 +262,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $_SESSION['name'] = (string) $user['full_name'];
                 $_SESSION['email'] = (string) $user['email'];
                 $_SESSION['role'] = (string) $user['role'];
+                $_SESSION['must_change_password'] = !empty($user['must_change_password']);
 
                 if (password_needs_rehash((string)$user['password_hash'], PASSWORD_DEFAULT)) {
                     $rehashStmt = $pdo->prepare('UPDATE users SET password_hash = :hash WHERE id = :id');
@@ -259,13 +273,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
 
                 redirectByRole((string) $user['role']);
+                }
             }
 
             $throttleState['attempts'] = (int)($throttleState['attempts'] ?? 0) + 1;
             if ($throttleState['attempts'] >= $maxAttempts) {
                 $throttleState['blocked_until'] = $nowTs + $lockoutSeconds;
             }
-            $error = $genericAuthError;
+            if ($error === '') $error = $genericAuthError;
         } catch (PDOException) {
             $error = 'Login is temporarily unavailable. Please try again later.';
         }
@@ -273,8 +288,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     regenerateLoginMathChallenge();
     $_SESSION['login_flash_error'] = $error;
-    $_SESSION['login_flash_email'] = $email;
-    header('Location: login.php');
+    $_SESSION['login_flash_email'] = $loginIdentifier;
+    header('Location: ' . appUrl('public/login.php'));
     exit;
 }
 
@@ -287,6 +302,7 @@ $mathChallenge = loginMathChallenge();
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>System Login | PHINMA Practicum</title>
+    <link rel="icon" type="image/png" href="/assets/images/logo_college.png">
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
         tailwind.config = {
@@ -368,7 +384,7 @@ $mathChallenge = loginMathChallenge();
                             type="email"
                             id="email"
                             name="email"
-                            value="<?= htmlspecialchars($email) ?>"
+                            value="<?= htmlspecialchars($loginIdentifier) ?>"
                             placeholder="your.email@phinmaed.com"
                             required
                             class="h-12 w-full rounded-lg border border-slate-300 px-3 text-sm shadow-sm outline-none transition focus:border-brand-500 focus:ring-4 focus:ring-brand-100"
@@ -377,14 +393,23 @@ $mathChallenge = loginMathChallenge();
 
                     <div>
                         <label for="password" class="mb-1 block text-sm font-semibold text-slate-700">Password</label>
-                        <input
-                            type="password"
-                            id="password"
-                            name="password"
-                            placeholder="Enter your password"
-                            required
-                            class="h-12 w-full rounded-lg border border-slate-300 px-3 text-sm shadow-sm outline-none transition focus:border-brand-500 focus:ring-4 focus:ring-brand-100"
-                        >
+                        <div class="relative">
+                            <input
+                                type="password"
+                                id="password"
+                                name="password"
+                                placeholder="Enter your password"
+                                required
+                                class="h-12 w-full rounded-lg border border-slate-300 px-3 pr-20 text-sm shadow-sm outline-none transition focus:border-brand-500 focus:ring-4 focus:ring-brand-100"
+                            >
+                            <button
+                                type="button"
+                                id="togglePassword"
+                                aria-controls="password"
+                                aria-label="Show password"
+                                class="absolute inset-y-0 right-0 mt-0 inline-flex items-center px-3 text-xs font-semibold normal-case tracking-normal text-brand-700 transition hover:text-brand-900 focus:outline-none focus:ring-4 focus:ring-brand-100"
+                            >Show</button>
+                        </div>
                     </div>
 
                     <div>
@@ -427,11 +452,20 @@ $mathChallenge = loginMathChallenge();
     <script>
         (function () {
             const form = document.getElementById('loginForm');
+            const passwordInput = document.getElementById('password');
+            const togglePassword = document.getElementById('togglePassword');
             const submitButton = document.getElementById('loginSubmitBtn');
             const refreshButton = document.getElementById('refreshChallengeBtn');
             const spinner = document.getElementById('loginSpinner');
             const text = document.getElementById('loginBtnText');
             if (!form || !submitButton || !spinner || !text) return;
+
+            togglePassword?.addEventListener('click', function () {
+                const isPasswordVisible = passwordInput.type === 'text';
+                passwordInput.type = isPasswordVisible ? 'password' : 'text';
+                togglePassword.textContent = isPasswordVisible ? 'Show' : 'Hide';
+                togglePassword.setAttribute('aria-label', isPasswordVisible ? 'Show password' : 'Hide password');
+            });
 
             form.addEventListener('submit', function (event) {
                 const trigger = event.submitter || document.activeElement;

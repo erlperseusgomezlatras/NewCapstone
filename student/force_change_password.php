@@ -1,0 +1,37 @@
+<?php
+declare(strict_types=1);
+require_once __DIR__ . '/../middleware/role_check.php';
+requireRole('student');
+require_once __DIR__ . '/../config/database.php';
+
+$user = currentUser();
+$pdo = getPDO();
+$error = '';
+$success = !empty($_SESSION['student_password_change_success']);
+unset($_SESSION['student_password_change_success']);
+
+if (!$success && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    $new = (string) ($_POST['new_password'] ?? '');
+    $confirm = (string) ($_POST['confirm_password'] ?? '');
+    if ($new !== $confirm) {
+        $error = 'New password and confirmation do not match.';
+    } elseif (strlen($new) < 8 || !preg_match('/[A-Z]/', $new) || !preg_match('/[a-z]/', $new) || !preg_match('/\d/', $new) || !preg_match('/[^A-Za-z0-9]/', $new)) {
+        $error = 'Use at least 8 characters with uppercase, lowercase, a number, and a special character.';
+    } else {
+        $stmt = $pdo->prepare('UPDATE users SET password_hash = :password_hash, must_change_password = 0, updated_at = NOW() WHERE id = :id AND must_change_password = 1');
+        $stmt->execute(['password_hash' => password_hash($new, PASSWORD_DEFAULT), 'id' => (int) $user['id']]);
+        if ($stmt->rowCount() !== 1) {
+            $error = 'Your password setup session has expired. Please sign in again.';
+        } else {
+            $_SESSION['must_change_password'] = false;
+            $_SESSION['student_password_change_success'] = true;
+            header('Location: ' . appUrl('student/force_change_password.php'));
+            exit;
+        }
+    }
+}
+if ($success): ?>
+<!doctype html><html><body><script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script><script>Swal.fire({icon:'success',title:'Password Updated',text:'Your account is now secured.',confirmButtonColor:'#047857'}).then(()=>location.href=<?= json_encode(appUrl('student/dashboard.php')) ?>);</script></body></html><?php exit; endif;
+?>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Account Security Setup</title><link rel="icon" type="image/png" href="<?= htmlspecialchars(appUrl('assets/images/logo_college.png'), ENT_QUOTES, 'UTF-8') ?>"><script src="https://cdn.tailwindcss.com"></script></head>
+<body class="min-h-screen bg-slate-50 flex items-center justify-center p-5"><main class="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-7 shadow-xl"><div class="mb-6"><p class="text-sm font-semibold text-emerald-700">Account Security Setup</p><h1 class="mt-2 text-2xl font-bold text-slate-900">First-Time Login Required</h1><p class="mt-3 text-sm leading-6 text-slate-600">Your student account uses a temporary password. Before continuing, create your own secure password. This step is required only once.</p></div><?php if ($error !== ''): ?><div class="mb-4 rounded-lg bg-rose-50 p-3 text-sm text-rose-700"><?= htmlspecialchars($error) ?></div><?php endif; ?><form method="post" class="space-y-4"><div><label class="mb-1 block text-sm font-semibold text-slate-700">New Password</label><input name="new_password" type="password" required autocomplete="new-password" class="w-full rounded-xl border border-slate-300 px-3 py-2.5"></div><div><label class="mb-1 block text-sm font-semibold text-slate-700">Confirm New Password</label><input name="confirm_password" type="password" required autocomplete="new-password" class="w-full rounded-xl border border-slate-300 px-3 py-2.5"></div><p class="text-xs text-slate-500">At least 8 characters, including uppercase, lowercase, number, and special character.</p><button class="w-full rounded-xl bg-emerald-700 px-4 py-3 text-sm font-semibold text-white hover:bg-emerald-600">Change Password &amp; Continue</button></form></main></body></html>

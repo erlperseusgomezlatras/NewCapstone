@@ -2,11 +2,30 @@
 
 declare(strict_types=1);
 
-const DB_HOST = '127.0.0.1';
-const DB_PORT = 3306;
-const DB_NAME = 'practicum_system';
-const DB_USER = 'root';
-const DB_PASS = '';
+// Keep deployment credentials in database.local.php. It is deliberately not
+// tracked by Git so production passwords never end up in the repository.
+$databaseConfig = [
+    'host' => '127.0.0.1',
+    'port' => 3306,
+    'name' => 'practicum_system',
+    'user' => 'root',
+    'pass' => '',
+];
+
+$localConfigPath = __DIR__ . '/database.local.php';
+if (is_file($localConfigPath)) {
+    $localConfig = require $localConfigPath;
+    if (!is_array($localConfig)) {
+        throw new RuntimeException('config/database.local.php must return an array.');
+    }
+    $databaseConfig = array_replace($databaseConfig, $localConfig);
+}
+
+define('DB_HOST', (string) $databaseConfig['host']);
+define('DB_PORT', (int) $databaseConfig['port']);
+define('DB_NAME', (string) $databaseConfig['name']);
+define('DB_USER', (string) $databaseConfig['user']);
+define('DB_PASS', (string) $databaseConfig['pass']);
 
 function getPDO(): PDO
 {

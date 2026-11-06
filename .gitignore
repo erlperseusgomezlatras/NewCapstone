@@ -1,3 +1,8 @@
 tmp_login_cookies.txt
 .DS_Store
 Thumbs.db
+config/smtp.local.php
+config/database.local.php
+assets/uploads/concerns/*
+assets/uploads/profile/*
+vendor/

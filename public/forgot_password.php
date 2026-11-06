@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../middleware/auth.php';
+require_once __DIR__ . '/../services/PasswordService.php';
+require_once __DIR__ . '/../vendor/autoload.php';
 
 header('X-Frame-Options: DENY');
 header('X-Content-Type-Options: nosniff');
@@ -25,7 +27,7 @@ if (session_status() !== PHP_SESSION_ACTIVE) {
 ensureSessionStarted();
 
 if (isLoggedIn()) {
-    header('Location: /practicum_system/public/login.php');
+    header('Location: ' . appUrl('public/login.php'));
     exit;
 }
 
@@ -79,20 +81,70 @@ function clearForgotPasswordState(): void
 
 function mailOtpCode(string $email, string $otp): bool
 {
-    $subject = 'PHINMA Practicum Password Reset OTP';
-    $headers = [
-        'MIME-Version: 1.0',
-        'Content-Type: text/plain; charset=UTF-8',
-        'From: no-reply@phinmaed.com',
-    ];
-    $message = implode("\n", [
-        'Your password reset code is: ' . $otp,
-        '',
-        'This code will expire in 10 minutes.',
-        'If you did not request this, you can ignore this email.',
-    ]);
+    $autoloadPath = __DIR__ . '/../vendor/autoload.php';
+    if (!is_file($autoloadPath)) {
+        return false;
+    }
 
-    return @mail($email, $subject, $message, implode("\r\n", $headers));
+    $smtpConfigPath = __DIR__ . '/../config/smtp.local.php';
+    $smtp = is_file($smtpConfigPath) ? require $smtpConfigPath : [];
+    if (!is_array($smtp)) {
+        $smtp = [];
+    }
+
+    $host = trim((string) ($smtp['SMTP_HOST'] ?? 'smtp.office365.com'));
+    $username = trim((string) ($smtp['SMTP_USER'] ?? ''));
+    $password = trim((string) ($smtp['SMTP_PASS'] ?? ''));
+    if (strtolower(rtrim($host, '.')) === 'smtp.gmail.com') {
+        $password = preg_replace('/\s+/', '', $password) ?? $password;
+    }
+    $fromEmail = trim((string) ($smtp['SMTP_FROM_EMAIL'] ?? $username));
+    $fromName = trim((string) ($smtp['SMTP_FROM_NAME'] ?? 'Practicum System'));
+    $secure = strtolower(trim((string) ($smtp['SMTP_SECURE'] ?? 'tls')));
+    $port = (int) ($smtp['SMTP_PORT'] ?? ($secure === 'ssl' ? 465 : 587));
+    $timeout = max(2, (int) ($smtp['SMTP_TIMEOUT'] ?? 4));
+    $timeLimit = max(2, (int) ($smtp['SMTP_TIMELIMIT'] ?? 4));
+
+    if ($host === '' || $username === '' || $password === '' || $fromEmail === '') {
+        return false;
+    }
+
+    try {
+        $mail = new \PHPMailer\PHPMailer\PHPMailer(true);
+        $mail->isSMTP();
+        $mail->Host = $host;
+        $mail->SMTPAuth = true;
+        $mail->Username = $username;
+        $mail->Password = $password;
+        $mail->Port = $port;
+        $mail->CharSet = 'UTF-8';
+        $mail->Timeout = $timeout;
+        $mail->Timelimit = $timeLimit;
+        $mail->SMTPAutoTLS = true;
+        $mail->AuthType = 'LOGIN';
+        $mail->SMTPKeepAlive = false;
+
+        if ($secure !== '') {
+            $mail->SMTPSecure = $secure;
+        }
+
+        $mail->setFrom($fromEmail, $fromName !== '' ? $fromName : 'Practicum System');
+        $mail->addAddress($email);
+        $mail->isHTML(false);
+        $mail->Subject = 'PHINMA Practicum Password Reset OTP';
+        $mail->Body = implode("\n", [
+            'Your password reset code is: ' . $otp,
+            '',
+            'This code will expire in 10 minutes.',
+            'If you did not request this, you can ignore this email.',
+        ]);
+        $mail->AltBody = $mail->Body;
+        $mail->send();
+
+        return true;
+    } catch (Throwable) {
+        return false;
+    }
 }
 
 function getUserIdByEmail(PDO $pdo, string $email): int
@@ -231,11 +283,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $showOtpForm = true;
                 } elseif ($newPassword === '' || $confirmPassword === '') {
                     $error = 'Enter and confirm your new password.';
-                } elseif (strlen($newPassword) < 8) {
-                    $error = 'New password must be at least 8 characters.';
-                } elseif ($newPassword !== $confirmPassword) {
-                    $error = 'New password and confirmation do not match.';
                 } else {
+                    $passwordErrors = passwordValidationErrors($newPassword);
+                    if ($newPassword !== $confirmPassword) {
+                        $passwordErrors[] = 'New passwords do not match.';
+                    }
+                    if ($passwordErrors !== []) {
+                        $error = implode(' ', array_unique($passwordErrors));
+                    } else {
                     $userId = getUserIdByEmail($pdo, $email);
                     if ($userId > 0) {
                         $update = $pdo->prepare(
@@ -244,7 +299,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                              WHERE id = :id'
                         );
                         $update->execute([
-                            'password_hash' => password_hash($newPassword, PASSWORD_DEFAULT),
+                            'password_hash' => hashUserPassword($newPassword),
                             'id' => $userId,
                         ]);
                     }
@@ -252,8 +307,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     clearForgotPasswordState();
                     $_SESSION['login_flash_success'] = 'Password reset successful. You can now log in.';
                     $_SESSION['login_flash_email'] = $email;
-                    header('Location: /practicum_system/public/login.php');
+                    header('Location: ' . appUrl('public/login.php'));
                     exit;
+                    }
                 }
             }
         } catch (PDOException) {
@@ -276,6 +332,7 @@ $csrfToken = forgotPasswordToken();
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Forgot Password | PHINMA Practicum</title>
+    <link rel="icon" type="image/png" href="/assets/images/logo_college.png">
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
         tailwind.config = {
@@ -388,7 +445,7 @@ $csrfToken = forgotPasswordToken();
                         </button>
                     </form>
                 <?php else: ?>
-                    <form method="post" class="mt-5 space-y-4">
+                    <form method="post" data-password-form class="mt-5 space-y-4">
                         <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken) ?>">
                         <input type="hidden" name="action" value="reset_password">
 
@@ -401,6 +458,8 @@ $csrfToken = forgotPasswordToken();
                             <input
                                 type="password"
                                 id="new_password"
+                                data-password-new
+                                autocomplete="new-password"
                                 name="new_password"
                                 placeholder="Enter new password"
                                 required
@@ -413,6 +472,8 @@ $csrfToken = forgotPasswordToken();
                             <input
                                 type="password"
                                 id="confirm_password"
+                                data-password-confirm
+                                autocomplete="new-password"
                                 name="confirm_password"
                                 placeholder="Confirm new password"
                                 required
@@ -420,13 +481,25 @@ $csrfToken = forgotPasswordToken();
                             >
                         </div>
 
-                        <button type="submit" class="inline-flex h-12 w-full items-center justify-center rounded-xl bg-gradient-to-r from-brand-600 to-emerald-500 px-4 text-sm font-bold uppercase tracking-wide text-white transition duration-300 hover:scale-[1.01] hover:from-brand-700 hover:to-emerald-600 focus:outline-none focus:ring-4 focus:ring-brand-100">
+                        <div class="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                            <p class="text-sm font-semibold text-slate-700">Password strength: <span data-password-strength class="text-slate-500">Not set</span></p>
+                            <ul class="mt-2 grid gap-1 text-sm sm:grid-cols-2">
+                                <li data-password-rule="length" class="text-slate-500"><span data-password-rule-icon>○</span> At least 8 characters</li>
+                                <li data-password-rule="uppercase" class="text-slate-500"><span data-password-rule-icon>○</span> One uppercase letter</li>
+                                <li data-password-rule="lowercase" class="text-slate-500"><span data-password-rule-icon>○</span> One lowercase letter</li>
+                                <li data-password-rule="number" class="text-slate-500"><span data-password-rule-icon>○</span> One number</li>
+                                <li data-password-rule="special" class="text-slate-500"><span data-password-rule-icon>○</span> One special character</li>
+                            </ul>
+                        </div>
+
+                        <button type="submit" data-password-submit disabled class="inline-flex h-12 w-full items-center justify-center rounded-xl bg-gradient-to-r from-brand-600 to-emerald-500 px-4 text-sm font-bold uppercase tracking-wide text-white transition duration-300 hover:scale-[1.01] hover:from-brand-700 hover:to-emerald-600 focus:outline-none focus:ring-4 focus:ring-brand-100 disabled:cursor-not-allowed disabled:opacity-50">
                             Reset Password
                         </button>
                     </form>
                 <?php endif; ?>
             </div>
         </section>
-    </main>
+</main>
+<script><?php readfile(__DIR__ . '/../assets/js/password-strength.js'); ?></script>
 </body>
 </html>

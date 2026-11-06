@@ -45,10 +45,14 @@ final class AcademicControlController
         );
         return $this->success(['section_id' => $id]);
     }
-
     public function createStudent(array $input): array
     {
-        return $this->success(['student_user_id' => $this->service->createStudentAccountWithProfile($input)]);
+        $result = $this->service->createStudentAccountWithProfile($input);
+        return $this->success([
+            'student_user_id' => $result['user_id'],
+            'credentials_email_sent' => $result['credentials_email_sent'],
+            'credentials_email_error' => $result['credentials_email_error'],
+        ]);
     }
 
     public function assignCoordinator(array $input): array

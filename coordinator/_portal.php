@@ -3,14 +3,16 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../middleware/logout_ui.php';
+require_once __DIR__ . '/../services/PracticumWeekService.php';
 
 function coordinatorNavItems(): array
 {
     return [
-        'dashboard' => ['label' => 'Student List', 'path' => '/practicum_system/coordinator/dashboard.php'],
-        'checklist' => ['label' => 'Checklist', 'path' => '/practicum_system/coordinator/checklist.php'],
-        'journals' => ['label' => 'Journal Submissions', 'path' => '/practicum_system/coordinator/journal_submissions.php'],
-        'history' => ['label' => 'History', 'path' => '/practicum_system/coordinator/history.php'],
+        'dashboard' => ['label' => 'Student List', 'path' => appUrl('coordinator/dashboard.php')],
+        'available_students' => ['label' => 'Add Students', 'path' => appUrl('coordinator/available_students.php')],
+        'checklist' => ['label' => 'Checklist', 'path' => appUrl('coordinator/checklist.php')],
+        'journals' => ['label' => 'Journal Submissions', 'path' => appUrl('coordinator/journal_submissions.php')],
+        'reports' => ['label' => 'Reports', 'path' => appUrl('coordinator/reports.php')],
     ];
 }
 
@@ -18,9 +20,12 @@ function coordinatorNavIcon(string $key): string
 {
     $icons = [
         'dashboard' => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="h-5 w-5"><rect x="3" y="3" width="7" height="7" rx="1.4"/><rect x="14" y="3" width="7" height="4" rx="1.4"/><rect x="14" y="10" width="7" height="11" rx="1.4"/><rect x="3" y="13" width="7" height="8" rx="1.4"/></svg>',
+        'available_students' => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="h-5 w-5"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6"/><path d="M22 11h-6"/></svg>',
         'checklist' => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="h-5 w-5"><path d="M9 11l2 2 4-4"/><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9 3h6"/></svg>',
         'journals' => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="h-5 w-5"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 17A2.5 2.5 0 0 0 4 19.5V5a2 2 0 0 1 2-2h14v14"/><path d="M8 7h8"/><path d="M8 11h6"/></svg>',
         'history' => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="h-5 w-5"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>',
+        'reports' => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="h-5 w-5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M8 13h8"/><path d="M8 17h8"/><path d="M8 9h2"/></svg>',
+        'settings' => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="h-5 w-5"><path d="M12 3l2.2 2.1 3-.4.8 2.9 2.7 1.3-1.3 2.7 1.3 2.7-2.7 1.3-.8 2.9-3-.4L12 21l-2.2-2.1-3 .4-.8-2.9-2.7-1.3 1.3-2.7-1.3-2.7 2.7-1.3.8-2.9 3 .4L12 3z"/><circle cx="12" cy="12" r="3"/></svg>',
     ];
 
     return $icons[$key] ?? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="h-5 w-5"><circle cx="12" cy="12" r="8"/></svg>';
@@ -72,32 +77,15 @@ function coordinatorWeekOptions(array $context): array
         return [];
     }
 
-    $start = new DateTimeImmutable((string) $context['semester_start_date']);
-    $end = new DateTimeImmutable((string) $context['semester_end_date']);
-    $cursor = $start->modify('monday this week');
-    $options = [];
-    $index = 1;
-    $currentWeek = (new DateTimeImmutable('today'))->modify('monday this week')->format('Y-m-d');
-
-    while ($cursor <= $end) {
-        $weekStart = $cursor->format('Y-m-d');
-        $weekEnd = $cursor->modify('+4 days')->format('Y-m-d');
-        $label = 'Week ' . $index . ' (' . date('M j', strtotime($weekStart)) . '-' . date('j, Y', strtotime($weekEnd)) . ')';
-        if ($weekStart === $currentWeek) {
-            $label .= ' - CURRENT';
-        }
-        $options[] = [
-            'index' => $index,
-            'start' => $weekStart,
-            'end' => $weekEnd,
-            'label' => $label,
-            'is_current' => $weekStart === $currentWeek,
-        ];
-        $cursor = $cursor->modify('+7 days');
-        $index++;
+    if (!practicumCanRun(
+        (string) ($context['practicum_start_date'] ?? ''),
+        null,
+        (string) ($context['practicum_status'] ?? '')
+    )) {
+        return [];
     }
 
-    return $options;
+    return practicumBuildWeeksFromStart((string) ($context['practicum_start_date'] ?? ''));
 }
 
 function coordinatorSelectedWeek(array $context, ?string $requestedWeek = null): ?array
@@ -107,21 +95,7 @@ function coordinatorSelectedWeek(array $context, ?string $requestedWeek = null):
         return null;
     }
 
-    if ($requestedWeek !== null) {
-        foreach ($options as $option) {
-            if ($option['start'] === $requestedWeek) {
-                return $option;
-            }
-        }
-    }
-
-    foreach ($options as $option) {
-        if ($option['is_current']) {
-            return $option;
-        }
-    }
-
-    return $options[0];
+    return practicumSelectWeek($options, $requestedWeek);
 }
 
 function coordinatorTopBadge(string $label, string $tone = 'slate'): string
@@ -129,6 +103,7 @@ function coordinatorTopBadge(string $label, string $tone = 'slate'): string
     $map = [
         'green' => 'bg-emerald-100 text-emerald-700 ring-emerald-200',
         'blue' => 'bg-blue-100 text-blue-700 ring-blue-200',
+        'yellow' => 'bg-yellow-100 text-yellow-800 ring-yellow-200',
         'orange' => 'bg-amber-50 text-amber-700 ring-amber-100',
         'red' => 'bg-rose-50 text-rose-700 ring-rose-100',
         'slate' => 'bg-slate-100 text-slate-700 ring-slate-200',
@@ -138,29 +113,36 @@ function coordinatorTopBadge(string $label, string $tone = 'slate'): string
     return '<span class="inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ring-1 ring-inset ' . $class . '">' . htmlspecialchars($label) . '</span>';
 }
 
+function coordinatorFormatHours(float $hours, bool $withSuffix = false): string
+{
+    $formatted = practicumFormatHours($hours);
+
+    return $withSuffix ? $formatted . 'h' : $formatted;
+}
+
 function coordinatorContextBadge(?array $context): string
 {
     if ($context === null || $context === []) {
-        return coordinatorTopBadge('NO ACTIVE SECTION', 'orange');
+        return coordinatorTopBadge('NO ASSIGNED SCHOOL', 'orange');
     }
 
-    $sectionStatus = (string) ($context['section_status'] ?? '');
     $semesterStatus = (string) ($context['semester_status'] ?? '');
     $yearStatus = (string) ($context['year_status'] ?? '');
 
-    if ($sectionStatus === 'active' && $semesterStatus === 'active' && $yearStatus === 'active') {
+    // Semester/year status is the authoritative source for the coordinator portal.
+    if ($semesterStatus === 'active' && $yearStatus === 'active') {
         return coordinatorTopBadge('ACTIVE', 'green');
     }
 
-    if ($sectionStatus === 'archived' || $semesterStatus === 'archived' || $yearStatus === 'archived') {
+    if ($semesterStatus === 'archived' || $yearStatus === 'archived') {
         return coordinatorTopBadge('ARCHIVED', 'red');
     }
 
-    if ($sectionStatus === 'inactive' || $semesterStatus === 'closed' || $semesterStatus === 'planned') {
+    if ($semesterStatus === 'closed' || $semesterStatus === 'planned' || $yearStatus === 'closed') {
         return coordinatorTopBadge('INACTIVE', 'orange');
     }
 
-    return coordinatorTopBadge('STATUS UNKNOWN', 'slate');
+    return coordinatorTopBadge('INACTIVE', 'orange');
 }
 
 function renderCoordinatorPortalStart(
@@ -168,15 +150,28 @@ function renderCoordinatorPortalStart(
     string $activeKey,
     string $pageTitle,
     ?array $context = null,
-    string $headerAction = ''
+    string $headerAction = '',
+    bool $wideLayout = false
 ): void {
     $navItems = coordinatorNavItems();
     $displayName = trim((string) ($user['name'] ?? 'Coordinator'));
     $displayEmail = trim((string) ($user['email'] ?? ''));
     $initials = coordinatorInitials($displayName);
-    $sectionLabel = trim((string) (($context['section_code'] ?? '') !== '' ? $context['section_code'] : ($context['section_name'] ?? 'Portal')));
+    $profilePhoto = '';
+    try {
+        $photoStmt = getPDO()->prepare('SELECT photo_path FROM user_profiles WHERE user_id = :user_id LIMIT 1');
+        $photoStmt->execute(['user_id' => (int) ($user['id'] ?? 0)]);
+        $candidatePhoto = (string) $photoStmt->fetchColumn();
+        if (str_starts_with($candidatePhoto, appUrl('assets/uploads/profile/'))) {
+            $profilePhoto = $candidatePhoto;
+        }
+    } catch (Throwable) {
+        // The portal remains available even if an optional profile photo cannot be read.
+    }
     $semesterLabel = trim((string) ($context['semester_name'] ?? ''));
     $schoolYearLabel = trim((string) ($context['year_label'] ?? ''));
+    $shellWidthClass = $wideLayout ? 'w-full max-w-none' : 'mx-auto max-w-7xl';
+    $shellPadClass = $wideLayout ? 'px-3 sm:px-4 lg:px-5' : 'px-4 sm:px-6 lg:px-8';
     ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -184,7 +179,9 @@ function renderCoordinatorPortalStart(
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title><?= htmlspecialchars($pageTitle) ?></title>
+    <link rel="icon" type="image/png" href="/assets/images/logo_college.png">
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <script>
         tailwind.config = {
             theme: {
@@ -263,30 +260,33 @@ function renderCoordinatorPortalStart(
         </div>
 
         <div class="border-t border-white/10 p-4">
-            <a href="/practicum_system/coordinator/dashboard.php"
-                class="mb-4 flex items-center gap-3 rounded-2xl px-4 py-3 text-sm font-semibold text-emerald-50/90 transition hover:bg-white/10 hover:text-white">
+            <a href="<?= htmlspecialchars(appUrl('coordinator/settings.php')) ?>"
+                class="mb-4 flex items-center gap-3 rounded-2xl px-4 py-3 text-sm font-semibold transition <?= $activeKey === 'settings' ? 'bg-white/14 text-white shadow-lg ring-1 ring-white/10' : 'text-emerald-50/90 hover:bg-white/10 hover:text-white' ?>">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="h-5 w-5"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.1V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.4-1.7 1.7 1.7 0 0 0-1.8.5l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1.1-.4H2.9a2 2 0 1 1 0-4H3a1.7 1.7 0 0 0 1.7-1.4 1.7 1.7 0 0 0-.5-1.8l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-.6 1.7 1.7 0 0 0 .4-1.1V2.9a2 2 0 1 1 4 0V3a1.7 1.7 0 0 0 1.4 1.7 1.7 1.7 0 0 0 1.8-.5l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9c.26.37.4.82.4 1.3s-.14.93-.4 1.3z"/></svg>
                 <span>Settings</span>
             </a>
             <div class="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
-                <div class="flex h-11 w-11 items-center justify-center rounded-full border border-white/15 bg-white/10 text-sm font-bold text-white"><?= htmlspecialchars($initials) ?></div>
+                <div class="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/15 bg-white/10 text-sm font-bold text-white"><?php if ($profilePhoto !== ''): ?><img src="<?= htmlspecialchars($profilePhoto) ?>" alt="Profile photo" class="h-full w-full object-cover"><?php else: ?><?= htmlspecialchars($initials) ?><?php endif; ?></div>
                 <div class="min-w-0">
                     <div class="truncate text-sm font-semibold"><?= htmlspecialchars($displayName) ?></div>
                     <div class="truncate text-xs text-emerald-100/80">Coordinator</div>
                 </div>
+            </div>
+            <div class="mt-3">
+                <?php renderSignOutButton('', true, 'sign-out-button--compact'); ?>
             </div>
         </div>
     </aside>
 
     <div class="min-w-0 flex-1">
         <header class="sticky top-0 z-20 border-b border-slate-200/80 bg-white/85 backdrop-blur-xl">
-            <div class="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-8">
+            <div class="<?= $shellWidthClass ?> flex items-center justify-between gap-4 <?= $shellPadClass ?> py-3">
                 <div class="flex min-w-0 items-center gap-3">
                     <button id="sidebarToggle" type="button" class="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 text-slate-700 lg:hidden">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="h-5 w-5"><path d="M3 6h18"/><path d="M3 12h18"/><path d="M3 18h18"/></svg>
                     </button>
                     <div class="min-w-0">
-                        <div class="truncate text-base font-bold text-slate-900">Coordinator <span class="font-medium text-slate-500">/ <?= htmlspecialchars($sectionLabel !== '' ? $sectionLabel : 'Portal') ?></span></div>
+                        <div class="truncate text-base font-bold text-slate-900">Coordinator Portal</div>
                     </div>
                 </div>
 
@@ -302,12 +302,11 @@ function renderCoordinatorPortalStart(
                     <?php if ($displayEmail !== ''): ?>
                         <span class="max-w-[240px] truncate text-sm text-slate-500"><?= htmlspecialchars($displayEmail) ?></span>
                     <?php endif; ?>
-                    <a href="/practicum_system/public/logout.php" class="inline-flex items-center rounded-2xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-900 transition hover:border-slate-400 hover:bg-slate-50" data-logout-trigger>Logout</a>
                 </div>
             </div>
 
             <div class="border-t border-slate-200/70 px-4 py-3 lg:hidden">
-                <div class="mx-auto flex max-w-7xl flex-wrap items-center gap-2 text-sm">
+                <div class="<?= $shellWidthClass ?> flex flex-wrap items-center gap-2 text-sm <?= $shellPadClass ?>">
                     <?php if ($schoolYearLabel !== ''): ?>
                         <span class="text-slate-600"><?= htmlspecialchars($schoolYearLabel) ?></span>
                     <?php endif; ?>
@@ -319,12 +318,11 @@ function renderCoordinatorPortalStart(
                         <span class="truncate text-slate-500"><?= htmlspecialchars($displayEmail) ?></span>
                     <?php endif; ?>
                     <?= $headerAction ?>
-                    <a href="/practicum_system/public/logout.php" class="inline-flex items-center rounded-xl border border-slate-300 bg-white px-4 py-2 font-semibold text-slate-900" data-logout-trigger>Logout</a>
                 </div>
             </div>
         </header>
 
-        <main class="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+        <main class="<?= $shellWidthClass ?> <?= $shellPadClass ?> py-6">
     <?php
 }
 
@@ -334,7 +332,7 @@ function renderCoordinatorPortalEnd(string $extraScript = ''): void
         </main>
     </div>
 </div>
-<?php renderLogoutUi('/practicum_system/public/logout.php'); ?>
+<?php renderLogoutUi(appUrl('public/logout.php')); ?>
 <script>
     (function () {
         const sidebar = document.getElementById('sidebar');
