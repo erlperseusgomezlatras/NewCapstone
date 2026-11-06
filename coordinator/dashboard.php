@@ -234,79 +234,33 @@ function coordinatorJournalStatusBadge(?string $status): string
         <?php endif; ?>
     </section>
 <?php else: ?>
-    <section data-reveal class="mb-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-        <div>
-            <h1 class="text-3xl font-bold tracking-tight text-slate-950 sm:text-4xl">Student List</h1>
-            <p class="mt-3 max-w-2xl text-base text-slate-500 sm:text-lg">
-                Monitor students under your assigned school for the selected week.
-            </p>
-        </div>
-        <form method="get" class="flex flex-col gap-3 sm:flex-row sm:items-center">
-            <label for="week_start" class="text-sm font-medium text-slate-500">Week:</label>
-            <select id="week_start" name="week_start" class="rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-medium text-slate-900 outline-none transition focus:border-brand-500 focus:ring-4 focus:ring-emerald-100">
+    <section data-reveal class="mb-5 flex flex-col gap-5 xl:flex-row xl:items-center xl:justify-between">
+        <div class="flex items-center gap-4"><div class="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-800"><svg viewBox="0 0 24 24" fill="currentColor" class="h-9 w-9"><path d="M12 2 1 8l11 6 9-4.91V17h2V8L12 2Zm-7 9.18V16l7 4 7-4v-4.82l-7 3.82-7-3.82Z"/></svg></div><div><h1 class="text-3xl font-extrabold tracking-tight text-slate-950 sm:text-4xl">Student List</h1><p class="mt-1 text-sm text-slate-500 sm:text-base">Monitor students under your assigned school for the selected week.</p></div></div>
+        <form method="get" class="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center">
+            <label for="week_start" class="col-span-2 self-center text-sm font-semibold text-slate-700 sm:col-span-1">Week:</label>
+            <select id="week_start" name="week_start" class="min-w-32 rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-medium text-slate-900 outline-none transition focus:border-brand-500 focus:ring-4 focus:ring-emerald-100">
                 <?php foreach ($weekOptions as $option): ?>
-                    <option value="<?= htmlspecialchars((string) $option['start']) ?>" <?= $option['start'] === $selectedWeek['start'] ? 'selected' : '' ?>>
-                        <?= htmlspecialchars(practicumWeekFilterLabel($option)) ?>
-                    </option>
+                    <option value="<?= htmlspecialchars((string) $option['start']) ?>" <?= $option['start'] === $selectedWeek['start'] ? 'selected' : '' ?>><?= htmlspecialchars(practicumWeekFilterLabel($option)) ?></option>
                 <?php endforeach; ?>
             </select>
-            <input type="search" name="student_search" value="<?= htmlspecialchars($studentSearch) ?>" placeholder="Search student name" class="rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-medium text-slate-900 outline-none transition focus:border-brand-500 focus:ring-4 focus:ring-emerald-100">
-            <select name="section_code" class="rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-medium text-slate-900 outline-none transition focus:border-brand-500 focus:ring-4 focus:ring-emerald-100">
-                <option value="">All Sections</option>
-                <?php foreach ($studentSections as $sectionCode => $sectionName): ?>
-                    <option value="<?= htmlspecialchars($sectionCode) ?>" <?= $sectionCode === $selectedStudentSection ? 'selected' : '' ?>><?= htmlspecialchars($sectionName) ?></option>
-                <?php endforeach; ?>
-            </select>
-            <select name="status" class="rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-medium text-slate-900 outline-none focus:border-brand-500 focus:ring-4 focus:ring-emerald-100">
-                <option value="">All Statuses</option>
-                <?php foreach (['Critical', 'Absent', 'Completed'] as $statusOption): ?>
-                    <option value="<?= htmlspecialchars($statusOption) ?>" <?= $selectedStatus === $statusOption ? 'selected' : '' ?>><?= htmlspecialchars($statusOption) ?></option>
-                <?php endforeach; ?>
-            </select>
-            <button type="submit" class="rounded-2xl border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-900 transition hover:border-slate-400 hover:bg-slate-50">View</button>
+            <input type="search" name="student_search" value="<?= htmlspecialchars($studentSearch) ?>" placeholder="Search student name or ID..." class="col-span-2 min-w-56 rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-medium text-slate-900 outline-none transition focus:border-brand-500 focus:ring-4 focus:ring-emerald-100 sm:col-span-1">
+            <select name="section_code" class="rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-medium text-slate-900 outline-none transition focus:border-brand-500 focus:ring-4 focus:ring-emerald-100"><option value="">All Sections</option><?php foreach ($studentSections as $sectionCode => $sectionName): ?><option value="<?= htmlspecialchars($sectionCode) ?>" <?= $sectionCode === $selectedStudentSection ? 'selected' : '' ?>><?= htmlspecialchars($sectionName) ?></option><?php endforeach; ?></select>
+            <select name="status" class="rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-medium text-slate-900 outline-none focus:border-brand-500 focus:ring-4 focus:ring-emerald-100"><option value="">All Statuses</option><?php foreach (['Critical', 'Absent', 'Completed'] as $statusOption): ?><option value="<?= htmlspecialchars($statusOption) ?>" <?= $selectedStatus === $statusOption ? 'selected' : '' ?>><?= htmlspecialchars($statusOption) ?></option><?php endforeach; ?></select>
+            <button type="submit" class="rounded-2xl bg-emerald-700 px-5 py-3 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-800">View</button>
         </form>
     </section>
 
-    <section class="mb-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <?php foreach ($assignedSchools as $assignedSchool):
-            $schoolType = (string) ($assignedSchool['deployment_type'] ?? '');
-            $schoolTypeLabel = $schoolType === 'public_school' ? 'Public' : ($schoolType === 'private_school' ? 'Private' : 'Not assigned');
-        ?>
-        <article data-reveal class="rounded-[28px] border border-slate-200 bg-white p-6 shadow-panel">
-            <p class="text-sm font-semibold text-slate-500">Your Assigned School</p>
-            <h2 class="mt-3 text-3xl font-bold tracking-tight text-slate-950"><?= htmlspecialchars((string) ($assignedSchool['school_name'] ?? 'No assigned school')) ?></h2>
-            <p class="mt-2 text-sm text-slate-500"><?= htmlspecialchars((string) ($assignedSchool['school_address'] ?? '')) ?></p>
-            <p class="mt-2 text-sm font-semibold text-slate-700">School Type: <span class="font-normal text-slate-500"><?= htmlspecialchars($schoolTypeLabel) ?></span></p>
-        </article>
-        <?php endforeach; ?>
-        <article data-reveal class="rounded-[28px] border border-slate-200 bg-white p-6 shadow-panel">
-            <p class="text-sm font-semibold text-slate-500">Students</p>
-            <h2 id="summaryTotalStudents" class="mt-3 text-3xl font-bold tracking-tight text-slate-950"><?= count($filteredWeeklyRows) ?></h2>
-            <p class="mt-2 text-sm text-slate-500">Students under your assigned school</p>
-            <p class="mt-2 text-xs font-semibold text-emerald-700">Live now: <span id="summaryActiveNow"><?= (int) ($dashboard['summary']['active_now'] ?? 0) ?></span></p>
-        </article>
-        <article data-reveal class="rounded-[28px] border border-slate-200 bg-white p-6 shadow-panel">
-            <p class="text-sm font-semibold text-slate-500">Semester</p>
-            <h2 class="mt-3 text-2xl font-bold tracking-tight text-slate-950"><?= htmlspecialchars((string) ($context['semester_name'] ?? 'No active semester')) ?></h2>
-            <p class="mt-2 text-sm text-slate-500"><?= htmlspecialchars((string) ($context['semester_name'] . ' • ' . $context['year_label'])) ?></p>
-        </article>
+    <section class="mb-6 grid gap-4 xl:grid-cols-12">
+        <?php $assignedSchool = $assignedSchools[0] ?? []; $schoolType = (string) ($assignedSchool['deployment_type'] ?? ''); $schoolTypeLabel = $schoolType === 'public_school' ? 'Public' : ($schoolType === 'private_school' ? 'Private' : 'Not assigned'); ?>
+        <article data-reveal class="relative overflow-hidden rounded-[24px] border border-slate-200 bg-gradient-to-br from-white via-white to-emerald-50 p-6 shadow-panel xl:col-span-5"><div class="relative z-10 max-w-[78%]"><p class="text-xs font-bold uppercase tracking-widest text-slate-500">Your Assigned School</p><h2 class="mt-2 text-2xl font-extrabold leading-tight text-slate-950"><?= htmlspecialchars((string) ($assignedSchool['school_name'] ?? 'No assigned school')) ?></h2><p class="mt-2 text-sm text-slate-600"><?= htmlspecialchars((string) ($assignedSchool['school_address'] ?? '')) ?></p><span class="mt-4 inline-flex rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-800">School Type: <?= htmlspecialchars($schoolTypeLabel) ?></span></div><div class="pointer-events-none absolute -bottom-8 -right-5 text-emerald-800/10"><svg viewBox="0 0 24 24" fill="currentColor" class="h-48 w-48"><path d="M12 3 1 9l11 6 9-4.91V17h2V9L12 3Zm-7 9v5l7 4 7-4v-5l-7 3.82L5 12Z"/></svg></div></article>
+        <div class="grid gap-4 sm:grid-cols-2 xl:col-span-7 xl:grid-cols-4">
+            <article data-reveal class="rounded-[22px] border border-slate-200 bg-white p-5 shadow-panel"><p class="text-sm font-semibold text-slate-500">Students</p><p id="summaryTotalStudents" class="mt-2 text-3xl font-extrabold text-slate-950"><?= count($filteredWeeklyRows) ?></p><p class="mt-2 text-xs font-bold text-emerald-700">Live now: <span id="summaryActiveNow"><?= (int) ($dashboard['summary']['active_now'] ?? 0) ?></span></p></article>
+            <article data-reveal class="rounded-[22px] border border-slate-200 bg-white p-5 shadow-panel"><p class="text-sm font-semibold text-slate-500">Semester</p><p class="mt-2 text-xl font-extrabold text-slate-950"><?= htmlspecialchars((string) ($context['semester_name'] ?? 'No active semester')) ?></p><p class="mt-2 text-xs text-slate-500"><?= htmlspecialchars((string) ($context['year_label'] ?? '')) ?></p></article>
+            <article data-reveal class="rounded-[22px] border border-slate-200 bg-white p-5 shadow-panel"><p class="text-sm font-semibold text-slate-500">Logged In Today</p><p id="summaryLoggedToday" class="mt-2 text-3xl font-extrabold text-slate-950"><?= (int) ($dashboard['summary']['logged_today'] ?? 0) ?></p><p class="mt-2 text-xs text-slate-500">Active time-in sessions</p></article>
+            <article data-reveal class="rounded-[22px] border border-slate-200 bg-white p-5 shadow-panel"><p class="text-sm font-semibold text-slate-500">Completed 8 Hours</p><p id="summaryCompleted8" class="mt-2 text-3xl font-extrabold text-slate-950"><?= (int) ($dashboard['summary']['completed_8h'] ?? 0) ?></p><p class="mt-2 text-xs text-slate-500">Today</p></article>
+        </div>
+        <div class="rounded-2xl border border-emerald-200 bg-gradient-to-r from-emerald-50 to-teal-50 px-5 py-3 xl:col-span-12"><p class="font-bold text-emerald-950">🟢 Live Refresh</p><p class="text-sm text-emerald-900">Student hours refresh every 5 seconds while time-in sessions are active.</p></div>
     </section>
-
-    <section class="mb-6 grid gap-4 md:grid-cols-3">
-        <article data-reveal class="rounded-[28px] border border-slate-200 bg-white p-5 shadow-panel">
-            <p class="text-sm font-semibold text-slate-500">Logged In Today</p>
-            <p id="summaryLoggedToday" class="mt-2 text-3xl font-bold tracking-tight text-slate-950"><?= (int) ($dashboard['summary']['logged_today'] ?? 0) ?></p>
-        </article>
-        <article data-reveal class="rounded-[28px] border border-slate-200 bg-white p-5 shadow-panel">
-            <p class="text-sm font-semibold text-slate-500">Completed 8 Hours</p>
-            <p id="summaryCompleted8" class="mt-2 text-3xl font-bold tracking-tight text-slate-950"><?= (int) ($dashboard['summary']['completed_8h'] ?? 0) ?></p>
-        </article>
-        <article data-reveal class="rounded-[28px] border border-emerald-200 bg-emerald-50 p-5 shadow-panel">
-            <p class="text-sm font-semibold text-emerald-800">Live Refresh</p>
-            <p class="mt-2 text-sm text-emerald-900">Student hours refresh every 5 seconds while time-in sessions are active.</p>
-        </article>
-    </section>
-
     <?php if ($incompleteAttendance !== []): ?>
     <section data-reveal class="mb-6 overflow-hidden rounded-[28px] border border-amber-200 bg-amber-50 shadow-panel">
         <div class="border-b border-amber-200 px-5 py-4">
@@ -333,20 +287,24 @@ function coordinatorJournalStatusBadge(?string $status): string
     </section>
     <?php endif; ?>
 
-    <section data-reveal class="overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-panel">
+    <section data-reveal class="overflow-hidden rounded-[24px] border border-slate-200 bg-white shadow-panel">
+        <div class="flex items-center gap-2 border-b border-slate-200 px-5">
+            <div class="border-b-[3px] border-emerald-700 px-4 py-4 text-sm font-bold text-slate-900">Current Students</div>
+            <a href="<?= htmlspecialchars(appUrl('coordinator/weekly_attendance.php?' . http_build_query(['week_start' => (string) $selectedWeek['start'], 'student_search' => $studentSearch, 'section_code' => $selectedStudentSection])), ENT_QUOTES, 'UTF-8') ?>" class="px-4 py-4 text-sm font-semibold text-slate-600 hover:text-emerald-800">Weekly Attendance</a>
+        </div>
         <div class="flex flex-col gap-4 border-b border-slate-100 px-5 py-5 lg:flex-row lg:items-center lg:justify-between">
             <div>
-                <h3 class="text-2xl font-bold tracking-tight text-slate-950">Current Students</h3>
-                <p class="mt-2 text-base text-slate-500">Each row is one student under your assigned school for the selected week.</p>
+                <h3 class="text-xl font-bold tracking-tight text-slate-950">Current Students</h3>
+                <p class="mt-1 text-sm text-slate-500">Each row is one student under your assigned school for the selected week.</p>
             </div>
             <div class="flex flex-wrap items-center gap-3">
-                <a href="<?= htmlspecialchars(appUrl('coordinator/weekly_attendance.php?' . http_build_query(['week_start' => (string) $selectedWeek['start'], 'student_search' => $studentSearch, 'section_code' => $selectedStudentSection])), ENT_QUOTES, 'UTF-8') ?>" class="rounded-2xl border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-900 transition hover:border-slate-400 hover:bg-slate-50">Weekly Attendance</a>
+                <button type="button" onclick="window.location.reload()" class="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50" aria-label="Refresh student list">↻ Refresh</button>
             </div>
         </div>
         <div class="scroll-slim overflow-x-auto">
             <table class="min-w-full text-left">
-                <thead class="bg-slate-50/80">
-                    <tr class="text-xs uppercase tracking-[0.22em] text-slate-500">
+                <thead class="bg-slate-50">
+                    <tr class="text-[11px] uppercase tracking-wide text-slate-600">
                         <th class="px-5 py-4 font-semibold">Student</th>
                         <th class="px-4 py-4 font-semibold">School ID</th>
                         <th class="px-4 py-4 font-semibold">Week Hours</th>
@@ -363,21 +321,21 @@ function coordinatorJournalStatusBadge(?string $status): string
                         $pendingConcernCount = (int) ($row['pending_concern_count'] ?? 0);
                         $studentFullName = trim((string) (($row['last_name'] ?? '') . ', ' . ($row['first_name'] ?? '')));
                         ?>
-                        <tr class="transition hover:bg-slate-50/80">
-                            <td class="px-5 py-4">
+                        <tr class="transition hover:bg-emerald-50/40">
+                            <td class="px-5 py-3">
                                 <div class="font-semibold text-slate-900"><?= htmlspecialchars($studentFullName) ?></div>
                                 <div class="mt-1 text-sm text-slate-500"><?= htmlspecialchars((string) ($row['section_name'] ?: ($row['section_code'] ?? 'No section assigned'))) ?></div>
                                 <div class="mt-1 text-xs text-slate-500"><?= htmlspecialchars((string) ($row['email'] ?? '')) ?></div>
                             </td>
-                            <td class="px-4 py-4 text-sm text-slate-600"><?= htmlspecialchars((string) ($row['school_id'] ?? 'N/A')) ?></td>
-                            <td class="px-4 py-4 font-semibold text-slate-900"><?= coordinatorFormatHours((float) ($row['total_hours'] ?? 0), true) ?></td>
-                            <td class="px-4 py-4">
+                            <td class="px-4 py-3 text-sm text-slate-700"><?= htmlspecialchars((string) ($row['school_id'] ?? 'N/A')) ?></td>
+                            <td class="px-4 py-3 font-semibold text-slate-900"><?= coordinatorFormatHours((float) ($row['total_hours'] ?? 0), true) ?></td>
+                            <td class="px-4 py-3">
                                 <?= coordinatorJournalStatusBadge((string) ($row['journal_status'] ?? 'missing')) ?>
                                 <div class="mt-1 text-xs font-semibold text-slate-700"><?= (int) ($row['journal_points_awarded'] ?? 0) ?> / <?= max(1, (int) ($row['journal_max_points'] ?? 50)) ?> points</div>
                             </td>
-                            <td class="px-4 py-4"><?= coordinatorStudentStatusBadge($row, (string) $selectedWeek['start'], $todayDate) ?></td>
-                            <td class="px-4 py-4"><?= coordinatorConcernButton($studentUserId, $pendingConcernCount, (string) $selectedWeek['start']) ?></td>
-                            <td class="px-4 py-4">
+                            <td class="px-4 py-3"><?= coordinatorStudentStatusBadge($row, (string) $selectedWeek['start'], $todayDate) ?></td>
+                            <td class="px-4 py-3"><?= coordinatorConcernButton($studentUserId, $pendingConcernCount, (string) $selectedWeek['start']) ?></td>
+                            <td class="px-4 py-3">
                                 <button
                                     type="button"
                                     data-emergency-open
@@ -639,18 +597,18 @@ if ($context !== [] && $selectedWeek !== null) {
           const fullName = escapeHtml(`${row.last_name || ""}, ${row.first_name || ""}`.trim());
           const statusHtml = statusBadge(row);
           const buttonLabel = "Mark Present";
-          return `<tr class="transition hover:bg-slate-50/80">
-              <td class="px-5 py-4">
+          return `<tr class="transition hover:bg-emerald-50/40">
+              <td class="px-5 py-3">
                 <div class="font-semibold text-slate-900">${fullName}</div>
                 <div class="mt-1 text-sm text-slate-500">${escapeHtml(row.section_name || row.section_code || "No section assigned")}</div>
                 <div class="mt-1 text-xs text-slate-500">${escapeHtml(row.email || "")}</div>
               </td>
-              <td class="px-4 py-4 text-sm text-slate-600">${escapeHtml(row.school_id || "N/A")}</td>
-              <td class="px-4 py-4 font-semibold text-slate-900">${coordinatorFormatHours(hours)}</td>
-              <td class="px-4 py-4">${journalBadge(String(row.journal_status || "missing"))}<div class="mt-1 text-xs font-semibold text-slate-700">${Number(row.journal_points_awarded || 0)} / ${Math.max(1, Number(row.journal_max_points || 50))} points</div></td>
-              <td class="px-4 py-4">${statusHtml}</td>
-              <td class="px-4 py-4">${concernLink(row.student_user_id || 0, row.pending_concern_count || 0)}</td>
-              <td class="px-4 py-4">
+              <td class="px-4 py-3 text-sm text-slate-700">${escapeHtml(row.school_id || "N/A")}</td>
+              <td class="px-4 py-3 font-semibold text-slate-900">${coordinatorFormatHours(hours)}</td>
+              <td class="px-4 py-3">${journalBadge(String(row.journal_status || "missing"))}<div class="mt-1 text-xs font-semibold text-slate-700">${Number(row.journal_points_awarded || 0)} / ${Math.max(1, Number(row.journal_max_points || 50))} points</div></td>
+              <td class="px-4 py-3">${statusHtml}</td>
+              <td class="px-4 py-3">${concernLink(row.student_user_id || 0, row.pending_concern_count || 0)}</td>
+              <td class="px-4 py-3">
                 <button
                   type="button"
                   data-emergency-open
